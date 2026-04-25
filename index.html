@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Chromium DWM/MPO bug repro · Windows 11 24H2/25H2</title>
+  <style>
+    :root {
+      --bg: #000;
+      --fg: #fff;
+      --accent: #4ade80;
+      --warn: #f87171;
+      --panel: rgba(0, 0, 0, 0.7);
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      overflow: hidden;
+    }
+    #stage {
+      position: fixed;
+      inset: 0;
+      display: grid;
+      place-items: center;
+    }
+    video {
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      object-fit: cover;
+      z-index: 0;
+    }
+    #counter {
+      position: fixed;
+      top: 1rem;
+      left: 1rem;
+      z-index: 2;
+      background: var(--panel);
+      padding: 1rem 1.25rem;
+      border-radius: 8px;
+      font-family: "SF Mono", "Cascadia Code", Consolas, monospace;
+      font-variant-numeric: tabular-nums;
+      font-size: 2.5rem;
+      line-height: 1.1;
+      min-width: 18rem;
+    }
+    #counter .label { font-size: 0.7rem; color: #aaa; letter-spacing: 0.1em; text-transform: uppercase; }
+    #counter .value { color: var(--accent); }
+    #info {
+      position: fixed;
+      bottom: 1rem;
+      left: 1rem;
+      right: 1rem;
+      z-index: 2;
+      background: var(--panel);
+      padding: 1rem 1.25rem;
+      border-radius: 8px;
+      max-width: 720px;
+      font-size: 0.95rem;
+      line-height: 1.5;
+    }
+    #info h1 { margin: 0 0 0.5rem; font-size: 1.1rem; }
+    #info p { margin: 0.25rem 0; }
+    #info code, #info kbd {
+      background: rgba(255,255,255,0.12);
+      padding: 0.05em 0.35em;
+      border-radius: 4px;
+      font-family: "SF Mono", "Cascadia Code", Consolas, monospace;
+      font-size: 0.9em;
+    }
+    #info .key { color: var(--accent); font-weight: bold; }
+    #info .symptom { color: var(--warn); font-weight: bold; }
+    #info ol { padding-left: 1.25rem; margin: 0.5rem 0; }
+    #diag {
+      margin-top: 0.5rem;
+      padding-top: 0.5rem;
+      border-top: 1px solid rgba(255,255,255,0.15);
+      font-family: "SF Mono", "Cascadia Code", Consolas, monospace;
+      font-size: 0.8rem;
+      color: #bbb;
+      white-space: pre-wrap;
+      max-height: 6rem;
+      overflow: auto;
+    }
+    #controls {
+      position: fixed;
+      top: 1rem;
+      right: 1rem;
+      z-index: 2;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      align-items: flex-end;
+    }
+    #controls button {
+      background: var(--panel);
+      color: var(--fg);
+      border: 1px solid rgba(255,255,255,0.25);
+      border-radius: 6px;
+      padding: 0.6rem 1rem;
+      font-size: 0.9rem;
+      font-family: inherit;
+      cursor: pointer;
+    }
+    #controls button:hover { background: rgba(255,255,255,0.15); }
+    #controls .status {
+      font-size: 0.75rem;
+      color: #aaa;
+      background: var(--panel);
+      padding: 0.4rem 0.75rem;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <video id="bg" src="test-video.mp4" autoplay loop muted playsinline></video>
+
+  <div id="counter">
+    <div class="label">animation frame</div>
+    <div class="value" id="frame">0</div>
+    <div class="label">elapsed</div>
+    <div id="elapsed">0.000s</div>
+  </div>
+
+  <div id="controls">
+    <button id="fsToggle">Fullscreen</button>
+    <button id="autoTrigger">Auto-trigger (10s)</button>
+    <div class="status" id="status">idle</div>
+  </div>
+
+  <div id="info">
+    <h1>Chromium DWM/MPO rendering bug — minimal reproduction</h1>
+    <p>This page reproduces the rendering glitch affecting Chromium-based apps on
+       <strong>Windows 11 24H2 / 25H2 with discrete GPUs</strong>. Tracked at
+       <a href="https://issues.chromium.org/issues/429859152" style="color:var(--accent)">Chromium 429859152</a>
+       and <a href="https://github.com/electron/electron/issues/46206" style="color:var(--accent)">electron/electron#46206</a>.</p>
+
+    <p><strong>Trigger steps:</strong></p>
+    <ol>
+      <li>Watch the <span class="key">animation frame</span> counter in the top-left — it should increment ~60 times/sec smoothly.</li>
+      <li>Press <kbd>Alt</kbd>+<kbd>Tab</kbd> to switch to a fullscreen application
+          (game, video player, or a maximized window). <em>Or</em> click <span class="key">Fullscreen</span>, then <kbd>Esc</kbd>.</li>
+      <li>Switch back to this tab.</li>
+      <li><strong>Repeat 2–3 times if needed</strong> — the bug doesn't always fire on the first switch.</li>
+    </ol>
+    <p><span class="symptom">Bug present:</span> the counter freezes at an old number while
+       the rest of the UI responds, or shows torn/partial frames.
+       Click the page → counter resumes. The bug is in the OS compositor (DWM), not the page.</p>
+    <p><span style="color:var(--accent);font-weight:bold">No bug:</span> counter keeps incrementing throughout, or resumes immediately when window regains focus.</p>
+    <pre id="diag"></pre>
+  </div>
+
+  <script>
+    // Frame counter — running at requestAnimationFrame rate (typically 60Hz)
+    const frameEl = document.getElementById('frame')
+    const elapsedEl = document.getElementById('elapsed')
+    const start = performance.now()
+    let frame = 0
+    function tick() {
+      frame++
+      frameEl.textContent = frame.toLocaleString()
+      elapsedEl.textContent = ((performance.now() - start) / 1000).toFixed(3) + 's'
+      requestAnimationFrame(tick)
+    }
+    requestAnimationFrame(tick)
+
+    // Diagnostics
+    const diag = document.getElementById('diag')
+    const lines = [
+      'userAgent: ' + navigator.userAgent,
+      'viewport:  ' + window.innerWidth + 'x' + window.innerHeight + ' @ ' + window.devicePixelRatio + 'x',
+      'platform:  ' + (navigator.userAgentData?.platform || navigator.platform),
+      'cores:     ' + (navigator.hardwareConcurrency || 'unknown'),
+      'memory:    ' + (navigator.deviceMemory ? navigator.deviceMemory + ' GB' : 'unknown'),
+    ]
+    diag.textContent = lines.join('\n')
+
+    // Best-effort GPU info via WebGL (no chrome:// access from a regular page)
+    try {
+      const gl = document.createElement('canvas').getContext('webgl')
+      const ext = gl?.getExtension('WEBGL_debug_renderer_info')
+      if (ext) {
+        diag.textContent += '\nGPU vendor:   ' + gl.getParameter(ext.UNMASKED_VENDOR_WEBGL)
+        diag.textContent += '\nGPU renderer: ' + gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)
+      }
+    } catch (e) {}
+
+    // Fullscreen toggle — useful trigger because entering/exiting fullscreen
+    // forces DWM to re-evaluate MPO promotion
+    const fsBtn = document.getElementById('fsToggle')
+    const status = document.getElementById('status')
+    fsBtn.addEventListener('click', async () => {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen()
+      } else {
+        await document.documentElement.requestFullscreen()
+      }
+    })
+    document.addEventListener('fullscreenchange', () => {
+      fsBtn.textContent = document.fullscreenElement ? 'Exit fullscreen' : 'Fullscreen'
+    })
+
+    // Auto-trigger — repeatedly toggle fullscreen + visibility events to force
+    // DWM mode transitions. Helpful when manual alt-tab isn't reliably firing.
+    let autoIntv = null
+    const autoBtn = document.getElementById('autoTrigger')
+    autoBtn.addEventListener('click', async () => {
+      if (autoIntv) {
+        clearInterval(autoIntv)
+        autoIntv = null
+        autoBtn.textContent = 'Auto-trigger (10s)'
+        status.textContent = 'idle'
+        return
+      }
+      autoBtn.textContent = 'Stop auto-trigger'
+      let n = 0
+      autoIntv = setInterval(async () => {
+        n++
+        status.textContent = 'cycle ' + n + ' — toggling fullscreen'
+        try {
+          if (document.fullscreenElement) await document.exitFullscreen()
+          else await document.documentElement.requestFullscreen()
+        } catch (e) {
+          status.textContent = 'fullscreen blocked: ' + e.message
+        }
+      }, 10000)
+    })
+  </script>
+</body>
+</html>
