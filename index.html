@@ -61,6 +61,68 @@
     #hud .badge.bad { background: rgba(248, 113, 113, 0.18); color: var(--warn); }
     #hud .badge.warn { background: rgba(248, 113, 113, 0.18); color: var(--warn); }
 
+    /* Affected-hardware verdict — top of HUD */
+    .verdict {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      margin: -4px -4px 8px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      cursor: pointer;
+      border: 1px solid transparent;
+    }
+    .verdict .dot {
+      width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+    }
+    .verdict.unknown { background: rgba(255,255,255,0.06); color: var(--dim); border-color: var(--border); }
+    .verdict.unknown .dot { background: var(--dim); }
+    .verdict.risk { background: rgba(248, 113, 113, 0.18); color: var(--warn); border-color: rgba(248, 113, 113, 0.4); }
+    .verdict.risk .dot { background: var(--warn); animation: dotPulse 1.4s ease-in-out infinite; }
+    .verdict.safe { background: rgba(74, 222, 128, 0.15); color: var(--accent); border-color: rgba(74, 222, 128, 0.4); }
+    .verdict.safe .dot { background: var(--accent); }
+    @keyframes dotPulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(248, 113, 113, 0.6); }
+      50%      { box-shadow: 0 0 0 5px rgba(248, 113, 113, 0); }
+    }
+
+    /* Checklist section in modal */
+    .check {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      padding: 8px 10px;
+      margin: 4px 0;
+      background: rgba(255,255,255,0.04);
+      border-left: 3px solid var(--border);
+      border-radius: 4px;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .check.yes { border-left-color: var(--warn); }
+    .check.no { border-left-color: var(--accent); }
+    .check.unknown { border-left-color: var(--dim); }
+    .check .mark { font-size: 16px; line-height: 1.2; flex-shrink: 0; }
+    .check.yes .mark { color: var(--warn); }
+    .check.no .mark { color: var(--accent); }
+    .check.unknown .mark { color: var(--dim); }
+    .check .body { flex: 1; }
+    .check .title { font-weight: 600; }
+    .check .detail { color: var(--dim); font-family: "SF Mono", "Cascadia Code", Consolas, monospace; font-size: 11.5px; margin-top: 2px; }
+    #verdictSummary {
+      margin-top: 8px;
+      padding: 10px 12px;
+      border-radius: 6px;
+      font-weight: 600;
+    }
+    #verdictSummary.risk { background: rgba(248, 113, 113, 0.15); color: var(--warn); border-left: 3px solid var(--warn); }
+    #verdictSummary.safe { background: rgba(74, 222, 128, 0.12); color: var(--accent); border-left: 3px solid var(--accent); }
+    #verdictSummary.unknown { background: rgba(255,255,255,0.06); color: var(--dim); border-left: 3px solid var(--dim); }
+
     #log {
       max-height: 70px;
       overflow-y: auto;
@@ -205,6 +267,10 @@
   <div id="canary" title="Animated canary — if this stops scrolling, the compositor is frozen"></div>
 
   <div id="hud">
+    <div id="verdict" class="verdict unknown" title="Click for the affected-hardware checklist">
+      <span class="dot"></span>
+      <span class="text">checking…</span>
+    </div>
     <div class="big row">
       <span class="label">FRAME</span>
       <span class="val" id="rafFrame">0</span>
@@ -239,6 +305,16 @@
         <strong>Windows 11 24H2 / 25H2 with discrete GPUs</strong>.
         Tracked at <a href="https://issues.chromium.org/issues/429859152" target="_blank">Chromium 429859152</a>
         and <a href="https://github.com/electron/electron/issues/46206" target="_blank">electron/electron#46206</a>.
+      </p>
+
+      <h3>Are you on affected hardware?</h3>
+      <div id="checklist"></div>
+      <div id="verdictSummary" class="unknown">checking…</div>
+      <p style="font-size:11.5px;color:var(--dim);margin-top:6px">
+        These are heuristics. The browser's User-Agent Client Hints API only
+        reports an approximate platform version, and GPU strings can be obscured by
+        privacy settings. Treat the verdict as a guide — running the actual repro is the
+        ground truth.
       </p>
 
       <h3>What to do</h3>
@@ -505,6 +581,171 @@
       }
     } catch (e) {}
     $('diag').textContent = diag.join('\n')
+
+    // ---- Affected-hardware detection ---------------------------------------
+    // Three signals: Chromium browser, Windows 24H2+, discrete GPU. Each is
+    // best-effort — UA-CH platform version is approximate, GPU strings can be
+    // obscured. We render each as a checklist item and roll up to a verdict.
+    async function assess() {
+      const out = { browser: null, os: null, gpu: null }
+
+      // Browser — Chromium-based?
+      const ua = navigator.userAgent
+      const chromeVer = ua.match(/Chrome\/([\d.]+)/)?.[1]
+      const edgeVer = ua.match(/Edg\/([\d.]+)/)?.[1]
+      const isChromium = !!chromeVer
+      out.browser = {
+        affected: isChromium,
+        title: isChromium ? 'Chromium-based browser' : 'Non-Chromium browser',
+        detail: edgeVer ? `Edge ${edgeVer} (Chromium ${chromeVer})`
+              : chromeVer ? `Chrome / Chromium ${chromeVer}`
+              : 'This bug only affects Chromium-based browsers.',
+      }
+
+      // OS — Windows 11 24H2 or 25H2?
+      // UA-CH platformVersion mapping (Microsoft's documented scheme):
+      //   Windows 10:           "0.x.0" (typically "0.1.0"–"0.3.0")
+      //   Windows 11 21H2:      major 13
+      //   Windows 11 22H2/23H2: major 14
+      //   Windows 11 24H2:      major 15
+      //   Windows 11 25H2:      major 15+ (subject to MS revision)
+      let osDetail = 'Could not determine OS version'
+      let osAffected = null  // null = unknown, true = at-risk, false = safe
+      try {
+        const uad = navigator.userAgentData
+        if (uad) {
+          const platform = uad.platform
+          const data = await uad.getHighEntropyValues(['platformVersion'])
+          const pv = data.platformVersion
+          if (platform === 'Windows' && pv) {
+            const major = parseInt(pv.split('.')[0], 10)
+            if (major >= 13 && major < 15) {
+              osAffected = false
+              osDetail = `Windows 11 (pre-24H2) — UA-CH platformVersion ${pv}`
+            } else if (major >= 15) {
+              osAffected = true
+              osDetail = `Windows 11 24H2 or later — UA-CH platformVersion ${pv}`
+            } else if (pv.startsWith('0.')) {
+              osAffected = false
+              osDetail = `Windows 10 — UA-CH platformVersion ${pv}`
+            } else {
+              osDetail = `Windows, platformVersion ${pv} (mapping uncertain)`
+            }
+          } else if (platform) {
+            osAffected = false
+            osDetail = `${platform} — bug only affects Windows`
+          }
+        } else {
+          // Fall back to legacy UA parse — far less reliable
+          if (/Windows NT 10\.0/.test(ua)) {
+            osDetail = 'Windows 10/11 (User-Agent Client Hints unavailable, can\'t distinguish)'
+          } else if (/Mac OS X|Macintosh/.test(ua)) {
+            osAffected = false
+            osDetail = 'macOS — bug only affects Windows'
+          } else if (/Linux/.test(ua)) {
+            osAffected = false
+            osDetail = 'Linux — bug only affects Windows'
+          }
+        }
+      } catch (e) {
+        osDetail = 'OS detection failed: ' + e.message
+      }
+      out.os = {
+        affected: osAffected,
+        title: osAffected === true ? 'Windows 11 24H2 or later'
+             : osAffected === false ? 'OS not in affected range'
+             : 'OS version unknown',
+        detail: osDetail,
+      }
+
+      // GPU — discrete?
+      let renderer = null
+      try {
+        const gl = document.createElement('canvas').getContext('webgl')
+        const ext = gl?.getExtension('WEBGL_debug_renderer_info')
+        if (ext) renderer = gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)
+      } catch (e) {}
+
+      let gpuAffected = null
+      let gpuDetail = 'GPU info unavailable'
+      if (renderer) {
+        const r = renderer.toLowerCase()
+        // Discrete signals (high confidence)
+        if (/nvidia|geforce|quadro|tesla/.test(r)) gpuAffected = true
+        else if (/intel arc|intel\(r\) arc/.test(r)) gpuAffected = true
+        // AMD: discrete radeons named "RX nnnn" / "Radeon Pro" / older "R9"; APUs typically include "Vega" or "Graphics" suffix
+        else if (/radeon\s*(rx|pro|r9|r7)\b/.test(r)) gpuAffected = true
+        // Integrated signals
+        else if (/intel\s*(uhd|hd|iris)/.test(r)) gpuAffected = false
+        else if (/radeon\s*(vega|graphics)|amd radeon\(tm\)\s*graphics/.test(r)) gpuAffected = false
+        else if (/apple|m1|m2|m3|m4/.test(r)) gpuAffected = false
+        // Anything else → uncertain
+        gpuDetail = renderer
+      }
+      out.gpu = {
+        affected: gpuAffected,
+        title: gpuAffected === true ? 'Discrete GPU detected'
+             : gpuAffected === false ? 'Integrated / non-Windows GPU'
+             : 'GPU type uncertain',
+        detail: gpuDetail,
+      }
+
+      return out
+    }
+
+    function renderAssessment(a) {
+      const checklistEl = $('checklist')
+      const items = [
+        { sig: a.browser, riskWhen: true,  okMsg: '✓', riskMsg: '!' },
+        { sig: a.os,      riskWhen: true,  okMsg: '✓', riskMsg: '!' },
+        { sig: a.gpu,     riskWhen: true,  okMsg: '✓', riskMsg: '!' },
+      ]
+      checklistEl.innerHTML = items.map(({ sig, riskWhen }) => {
+        const cls = sig.affected === true ? 'yes'
+                  : sig.affected === false ? 'no'
+                  : 'unknown'
+        const mark = sig.affected === true ? '⚠' : sig.affected === false ? '✓' : '?'
+        return `<div class="check ${cls}">
+          <div class="mark">${mark}</div>
+          <div class="body">
+            <div class="title">${sig.title}</div>
+            <div class="detail">${sig.detail}</div>
+          </div>
+        </div>`
+      }).join('')
+
+      // Roll up verdict. Bug requires ALL three to be true.
+      // - If any is false → safe
+      // - If all three true → risk
+      // - Otherwise → unknown
+      let verdict
+      const flags = [a.browser.affected, a.os.affected, a.gpu.affected]
+      if (flags.includes(false)) {
+        verdict = { level: 'safe', text: '✓  Likely NOT affected by this bug' }
+      } else if (flags.every(v => v === true)) {
+        verdict = { level: 'risk', text: '⚠  LIKELY AFFECTED — your hardware matches the at-risk profile' }
+      } else {
+        verdict = { level: 'unknown', text: '?  Inconclusive — try the triggers below to find out' }
+      }
+      const sumEl = $('verdictSummary')
+      sumEl.className = verdict.level
+      sumEl.textContent = verdict.text
+
+      // Mirror to compact HUD badge
+      const v = $('verdict')
+      v.className = 'verdict ' + verdict.level
+      const shortText = verdict.level === 'risk' ? 'LIKELY AFFECTED'
+                      : verdict.level === 'safe' ? 'likely not affected'
+                      : 'inconclusive'
+      v.querySelector('.text').textContent = shortText
+    }
+
+    assess().then(renderAssessment).catch(e => {
+      console.error('assessment failed', e)
+      $('verdictSummary').textContent = 'Detection failed: ' + e.message
+    })
+    // Open the modal when the verdict badge is clicked
+    $('verdict').addEventListener('click', () => $('modal').classList.add('open'))
 
     // Browser internals: click-to-copy chrome:// URLs (Chrome blocks navigation from a page)
     const chromeUrls = [
