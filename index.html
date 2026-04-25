@@ -216,7 +216,6 @@
     <div id="log"></div>
     <div id="buttons">
       <button id="fsBtn">Fullscreen</button>
-      <button id="autoBtn">Auto-cycle</button>
       <button id="infoBtn" class="iconOnly" title="Instructions and diagnostics">ⓘ</button>
     </div>
   </div>
@@ -405,24 +404,6 @@
     document.addEventListener('fullscreenchange', () => {
       $('fsBtn').textContent = document.fullscreenElement ? 'Exit FS' : 'Fullscreen'
       log('fullscreen ' + (document.fullscreenElement ? 'entered' : 'exited'))
-    })
-
-    let autoIntv = null
-    $('autoBtn').addEventListener('click', async () => {
-      if (autoIntv) {
-        clearInterval(autoIntv); autoIntv = null
-        $('autoBtn').textContent = 'Auto-cycle'
-        log('auto-cycle stopped')
-        return
-      }
-      $('autoBtn').textContent = 'Stop'
-      log('auto-cycle started (10s interval)')
-      autoIntv = setInterval(async () => {
-        try {
-          if (document.fullscreenElement) await document.exitFullscreen()
-          else await document.documentElement.requestFullscreen()
-        } catch (e) { log('cycle failed: ' + e.message, 'warn') }
-      }, 10000)
     })
 
     // ---- Info modal --------------------------------------------------------
