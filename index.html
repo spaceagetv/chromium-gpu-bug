@@ -87,6 +87,17 @@
     }
     #buttons button:hover { background: rgba(255, 255, 255, 0.16); }
     #buttons button.iconOnly { flex: 0 0 auto; padding: 5px 9px; }
+    #buttons button#infoBtn {
+      background: rgba(74, 222, 128, 0.15);
+      border-color: rgba(74, 222, 128, 0.5);
+      color: var(--accent);
+    }
+    #buttons button#infoBtn:hover { background: rgba(74, 222, 128, 0.28); }
+    #buttons button#infoBtn.pulse { animation: infoPulse 1.6s ease-in-out infinite; }
+    @keyframes infoPulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.5); }
+      50%      { box-shadow: 0 0 0 6px rgba(74, 222, 128, 0); }
+    }
 
     /* Modal info panel */
     #modal {
@@ -216,13 +227,13 @@
     <div id="log"></div>
     <div id="buttons">
       <button id="fsBtn">Fullscreen</button>
-      <button id="infoBtn" class="iconOnly" title="Instructions and diagnostics">ⓘ</button>
+      <button id="infoBtn" title="Instructions and diagnostics">Read me  ⓘ</button>
     </div>
   </div>
 
   <div id="modal">
     <div class="card">
-      <button class="close" onclick="document.getElementById('modal').classList.remove('open')">close</button>
+      <button class="close">close</button>
       <h2>Chromium DWM/MPO rendering bug — minimal repro</h2>
       <p>Reproduces the rendering glitch affecting Chromium-based apps on
         <strong>Windows 11 24H2 / 25H2 with discrete GPUs</strong>.
@@ -230,17 +241,51 @@
         and <a href="https://github.com/electron/electron/issues/46206" target="_blank">electron/electron#46206</a>.
       </p>
 
-      <h3>How to reproduce</h3>
+      <h3>What to do</h3>
+      <p>While watching the page, do <em>any one</em> of these to make Windows DWM
+         re-evaluate which windows get hardware overlay planes — the action that
+         trips the bug:</p>
       <ol>
-        <li>Watch the <code>FRAME</code> counter and the colored <strong>canary stripe</strong> on the right edge.</li>
-        <li>Press <kbd>Alt</kbd>+<kbd>Tab</kbd> to a fullscreen game/video, or click <strong>Fullscreen</strong> then <kbd>Esc</kbd>.</li>
-        <li>Switch back. Repeat 2–3 times if needed.</li>
+        <li><strong>Alt-Tab</strong> to another window (any window — doesn't have to be fullscreen).
+            Then alt-tab back. <em>Most reliable trigger.</em></li>
+        <li><kbd>Win</kbd>+<kbd>D</kbd> to show the desktop, then click this window again.</li>
+        <li>Click <strong>Fullscreen</strong> below to toggle this page in/out of fullscreen mode.
+            (See "Why a Fullscreen button?" below.)</li>
+        <li>Resize the browser window.</li>
+        <li>Bring another video-playing tab or app to the front, then come back.</li>
       </ol>
-      <p><span class="symptom">Bug present:</span> the stripe stops scrolling, or the counter freezes,
-        while the rest of the page (cursor, buttons) still works. <code>long pauses</code> increments.
-        Click the page → it resumes. The bug is in the OS compositor (DWM); the renderer is fine.</p>
-      <p><span class="ok">No bug:</span> the stripe never stops, counter increments continuously,
-        and <code>long pauses</code> stays at 0 (or only ticks when visibility actually changed).</p>
+      <p>Repeat 2–3 times if needed — the bug doesn't always fire on the first transition.</p>
+
+      <h3>What to watch</h3>
+      <p>The HUD on the left shows several signals. While the page is continuously
+         visible and focused:</p>
+      <ul>
+        <li>The <strong>colored canary stripe</strong> on the right edge should never
+            stop scrolling. If it freezes mid-scroll, the compositor froze.</li>
+        <li>The <code>FRAME</code> counter should always be incrementing.</li>
+        <li><code>long pauses</code> should stay at <strong>0</strong>. Each increment is
+            a confirmed compositor freeze of &gt;200ms while the page was visible and
+            focused — direct evidence of the bug.</li>
+        <li><code>video fps</code> should hover around the video's native rate (~24fps
+            for this clip). Sustained drops indicate dropped frames at the compositor.</li>
+      </ul>
+      <p><span class="symptom">Bug present:</span> the stripe freezes mid-scroll, or
+         the counter stops incrementing, or <code>long pauses</code> ticks up — while the
+         page is otherwise responsive. Clicking the page typically resumes it.</p>
+      <p><span class="ok">No bug:</span> the stripe never stops, counter increments
+         continuously, and <code>long pauses</code> stays at 0 across multiple alt-tab cycles.</p>
+
+      <h3>Why a Fullscreen button?</h3>
+      <p>The bug isn't about fullscreen specifically — it's about
+         <strong>any action that causes Windows DWM to re-evaluate Multi-Plane
+         Overlay (MPO) assignments</strong>. Most of those actions
+         (alt-tab, <kbd>Win</kbd>+<kbd>D</kbd>, window resize, switching apps) require
+         user input that a web page can't initiate on your behalf.</p>
+      <p>Fullscreen is the one trigger we can offer as a clickable button — entering
+         or exiting fullscreen mode forces DWM to rebuild its overlay assignments,
+         the same kind of transition that alt-tabbing causes. It's not the most
+         reliable trigger, just the most convenient one to put in a button. If
+         clicking it doesn't immediately fire the bug, alt-tab is your next move.</p>
 
       <h3>What the metrics show</h3>
       <p><code>FRAME</code> / <code>rAF fps</code> — animation frames the page rendered.
@@ -407,9 +452,33 @@
     })
 
     // ---- Info modal --------------------------------------------------------
-    $('infoBtn').addEventListener('click', () => $('modal').classList.add('open'))
+    // Auto-open on first visit so visitors get the context. Once dismissed,
+    // remembered in localStorage so repeat visits don't re-pop. Re-open via button.
+    const SEEN_KEY = 'chromium-gpu-bug:seen-intro'
+    const hasSeen = (() => { try { return localStorage.getItem(SEEN_KEY) === '1' } catch (_) { return false } })()
+    if (!hasSeen) {
+      $('modal').classList.add('open')
+      $('infoBtn').classList.add('pulse')
+    } else {
+      // Returning visitor: pulse briefly so they notice the button still exists
+      $('infoBtn').classList.add('pulse')
+      setTimeout(() => $('infoBtn').classList.remove('pulse'), 6000)
+    }
+    function closeModal() {
+      $('modal').classList.remove('open')
+      $('infoBtn').classList.remove('pulse')
+      try { localStorage.setItem(SEEN_KEY, '1') } catch (_) {}
+    }
+    $('infoBtn').addEventListener('click', () => {
+      if ($('modal').classList.contains('open')) closeModal()
+      else $('modal').classList.add('open')
+    })
+    document.querySelectorAll('#modal .close').forEach(el => el.addEventListener('click', closeModal))
     $('modal').addEventListener('click', (e) => {
-      if (e.target.id === 'modal') $('modal').classList.remove('open')
+      if (e.target.id === 'modal') closeModal()
+    })
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && $('modal').classList.contains('open')) closeModal()
     })
 
     // Diagnostic dump (rendered into the modal, not the HUD, to keep HUD compact)
