@@ -10,7 +10,9 @@
       --fg: #fff;
       --accent: #4ade80;
       --warn: #f87171;
-      --panel: rgba(0, 0, 0, 0.7);
+      --dim: rgba(255, 255, 255, 0.55);
+      --panel: rgba(0, 0, 0, 0.78);
+      --border: rgba(255, 255, 255, 0.12);
     }
     * { box-sizing: border-box; }
     html, body {
@@ -19,15 +21,10 @@
       background: var(--bg);
       color: var(--fg);
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      font-size: 13px;
       overflow: hidden;
     }
-    #stage {
-      position: fixed;
-      inset: 0;
-      display: grid;
-      place-items: center;
-    }
-    video {
+    video#bg {
       position: fixed;
       inset: 0;
       width: 100vw;
@@ -35,201 +32,462 @@
       object-fit: cover;
       z-index: 0;
     }
-    #counter {
+
+    /* Compact HUD: single panel, top-left */
+    #hud {
       position: fixed;
-      top: 1rem;
-      left: 1rem;
-      z-index: 2;
+      top: 12px;
+      left: 12px;
+      z-index: 10;
       background: var(--panel);
-      padding: 1rem 1.25rem;
+      border: 1px solid var(--border);
       border-radius: 8px;
-      font-family: "SF Mono", "Cascadia Code", Consolas, monospace;
+      padding: 10px 12px;
+      min-width: 280px;
+      max-width: 340px;
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
       font-variant-numeric: tabular-nums;
-      font-size: 2.5rem;
-      line-height: 1.1;
-      min-width: 18rem;
     }
-    #counter .label { font-size: 0.7rem; color: #aaa; letter-spacing: 0.1em; text-transform: uppercase; }
-    #counter .value { color: var(--accent); }
-    #info {
-      position: fixed;
-      bottom: 1rem;
-      left: 1rem;
-      right: 1rem;
-      z-index: 2;
-      background: var(--panel);
-      padding: 1rem 1.25rem;
-      border-radius: 8px;
-      max-width: 720px;
-      font-size: 0.95rem;
-      line-height: 1.5;
-    }
-    #info h1 { margin: 0 0 0.5rem; font-size: 1.1rem; }
-    #info p { margin: 0.25rem 0; }
-    #info code, #info kbd {
-      background: rgba(255,255,255,0.12);
-      padding: 0.05em 0.35em;
-      border-radius: 4px;
+    #hud.warn { border-color: var(--warn); box-shadow: 0 0 0 2px rgba(248, 113, 113, 0.3); }
+    #hud .row { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; padding: 2px 0; }
+    #hud .row .label { color: var(--dim); font-size: 11px; letter-spacing: 0.04em; }
+    #hud .row .val { font-family: "SF Mono", "Cascadia Code", Consolas, monospace; }
+    #hud .big { font-size: 22px; font-weight: 600; line-height: 1.05; padding: 4px 0; }
+    #hud .big .val { color: var(--accent); }
+    #hud .sep { height: 1px; background: var(--border); margin: 6px -12px; }
+    #hud .badge { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 10px; letter-spacing: 0.05em; }
+    #hud .badge.ok { background: rgba(74, 222, 128, 0.15); color: var(--accent); }
+    #hud .badge.bad { background: rgba(248, 113, 113, 0.18); color: var(--warn); }
+    #hud .badge.warn { background: rgba(248, 113, 113, 0.18); color: var(--warn); }
+
+    #log {
+      max-height: 70px;
+      overflow-y: auto;
       font-family: "SF Mono", "Cascadia Code", Consolas, monospace;
-      font-size: 0.9em;
+      font-size: 10.5px;
+      color: var(--dim);
+      line-height: 1.4;
     }
-    #info .key { color: var(--accent); font-weight: bold; }
-    #info .symptom { color: var(--warn); font-weight: bold; }
-    #info ol { padding-left: 1.25rem; margin: 0.5rem 0; }
-    #diag {
-      margin-top: 0.5rem;
-      padding-top: 0.5rem;
-      border-top: 1px solid rgba(255,255,255,0.15);
-      font-family: "SF Mono", "Cascadia Code", Consolas, monospace;
-      font-size: 0.8rem;
-      color: #bbb;
-      white-space: pre-wrap;
-      max-height: 6rem;
-      overflow: auto;
-    }
-    #controls {
-      position: fixed;
-      top: 1rem;
-      right: 1rem;
-      z-index: 2;
-      display: flex;
-      flex-direction: column;
-      gap: 0.5rem;
-      align-items: flex-end;
-    }
-    #controls button {
-      background: var(--panel);
+    #log .e { padding: 1px 0; }
+    #log .e.warn { color: var(--warn); }
+    #log .e.ok { color: var(--accent); }
+
+    #buttons { display: flex; gap: 6px; margin-top: 8px; }
+    #buttons button {
+      flex: 1;
+      background: rgba(255, 255, 255, 0.08);
       color: var(--fg);
-      border: 1px solid rgba(255,255,255,0.25);
-      border-radius: 6px;
-      padding: 0.6rem 1rem;
-      font-size: 0.9rem;
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 5px 8px;
+      font-size: 11px;
       font-family: inherit;
       cursor: pointer;
     }
-    #controls button:hover { background: rgba(255,255,255,0.15); }
-    #controls .status {
-      font-size: 0.75rem;
-      color: #aaa;
-      background: var(--panel);
-      padding: 0.4rem 0.75rem;
+    #buttons button:hover { background: rgba(255, 255, 255, 0.16); }
+    #buttons button.iconOnly { flex: 0 0 auto; padding: 5px 9px; }
+
+    /* Modal info panel */
+    #modal {
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      background: rgba(0, 0, 0, 0.7);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    #modal.open { display: flex; }
+    #modal .card {
+      background: #0c0c0c;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 20px 24px;
+      max-width: 640px;
+      max-height: 90vh;
+      overflow-y: auto;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    #modal h2 { margin: 0 0 8px; font-size: 18px; }
+    #modal h3 { margin: 14px 0 4px; font-size: 13px; color: var(--dim); letter-spacing: 0.04em; text-transform: uppercase; }
+    #modal p { margin: 4px 0; }
+    #modal ol { padding-left: 20px; margin: 4px 0; }
+    #modal kbd, #modal code {
+      background: rgba(255,255,255,0.10); padding: 1px 6px; border-radius: 3px;
+      font-family: "SF Mono", "Cascadia Code", Consolas, monospace; font-size: 0.92em;
+    }
+    #modal a { color: var(--accent); }
+    #modal .symptom { color: var(--warn); font-weight: 600; }
+    #modal .ok { color: var(--accent); font-weight: 600; }
+    #modal pre {
+      background: rgba(255,255,255,0.04);
+      padding: 10px;
+      border-radius: 6px;
+      font-size: 11px;
+      overflow-x: auto;
+      margin: 6px 0 0;
+    }
+    .chromeLink {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 10px;
+      margin: 4px 0;
+      font-family: "SF Mono", "Cascadia Code", Consolas, monospace;
+      font-size: 12px;
+      cursor: pointer;
+      transition: background 0.1s;
+    }
+    .chromeLink:hover { background: rgba(255,255,255,0.10); }
+    .chromeLink .url { color: var(--accent); }
+    .chromeLink .desc { color: var(--dim); font-family: inherit; font-size: 11px; flex: 1; padding-left: 8px; }
+    .chromeLink .copyHint { color: var(--dim); font-size: 10px; }
+    .chromeLink.copied { background: rgba(74, 222, 128, 0.18); }
+    .chromeLink.copied .copyHint { color: var(--accent); }
+    #modal .close {
+      float: right;
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--fg);
       border-radius: 4px;
+      padding: 4px 10px;
+      cursor: pointer;
+    }
+
+    /* Animated stripe — visual canary. If anything in the compositor freezes,
+       this stripe is impossible to miss because every pixel changes every frame. */
+    #canary {
+      position: fixed;
+      top: 0;
+      right: 0;
+      width: 6px;
+      height: 100vh;
+      z-index: 5;
+      background: linear-gradient(
+        180deg,
+        hsl(0, 100%, 50%),
+        hsl(60, 100%, 50%),
+        hsl(120, 100%, 50%),
+        hsl(180, 100%, 50%),
+        hsl(240, 100%, 50%),
+        hsl(300, 100%, 50%),
+        hsl(360, 100%, 50%)
+      );
+      background-size: 100% 200%;
+      animation: scroll 1s linear infinite;
+    }
+    @keyframes scroll {
+      from { background-position: 0 0; }
+      to   { background-position: 0 -100vh; }
     }
   </style>
 </head>
 <body>
   <video id="bg" src="test-video.mp4" autoplay loop muted playsinline></video>
+  <div id="canary" title="Animated canary — if this stops scrolling, the compositor is frozen"></div>
 
-  <div id="counter">
-    <div class="label">animation frame</div>
-    <div class="value" id="frame">0</div>
-    <div class="label">elapsed</div>
-    <div id="elapsed">0.000s</div>
+  <div id="hud">
+    <div class="big row">
+      <span class="label">FRAME</span>
+      <span class="val" id="rafFrame">0</span>
+    </div>
+    <div class="row"><span class="label">rAF fps</span><span class="val" id="rafFps">—</span></div>
+    <div class="row"><span class="label">video fps</span><span class="val" id="vfcFps">—</span></div>
+    <div class="row"><span class="label">video frames</span><span class="val" id="vfcCount">0</span></div>
+    <div class="row"><span class="label">video dropped</span><span class="val" id="vfcDropped">0</span></div>
+    <div class="row"><span class="label">long pauses</span><span class="val" id="longPauses">0</span></div>
+    <div class="row"><span class="label">elapsed</span><span class="val" id="elapsed">0.0s</span></div>
+    <div class="sep"></div>
+    <div class="row">
+      <span class="label">state</span>
+      <span class="val">
+        <span id="visBadge" class="badge ok">VISIBLE</span>
+        <span id="focusBadge" class="badge ok">FOCUS</span>
+      </span>
+    </div>
+    <div class="sep"></div>
+    <div id="log"></div>
+    <div id="buttons">
+      <button id="fsBtn">Fullscreen</button>
+      <button id="autoBtn">Auto-cycle</button>
+      <button id="infoBtn" class="iconOnly" title="Instructions and diagnostics">ⓘ</button>
+    </div>
   </div>
 
-  <div id="controls">
-    <button id="fsToggle">Fullscreen</button>
-    <button id="autoTrigger">Auto-trigger (10s)</button>
-    <div class="status" id="status">idle</div>
-  </div>
+  <div id="modal">
+    <div class="card">
+      <button class="close" onclick="document.getElementById('modal').classList.remove('open')">close</button>
+      <h2>Chromium DWM/MPO rendering bug — minimal repro</h2>
+      <p>Reproduces the rendering glitch affecting Chromium-based apps on
+        <strong>Windows 11 24H2 / 25H2 with discrete GPUs</strong>.
+        Tracked at <a href="https://issues.chromium.org/issues/429859152" target="_blank">Chromium 429859152</a>
+        and <a href="https://github.com/electron/electron/issues/46206" target="_blank">electron/electron#46206</a>.
+      </p>
 
-  <div id="info">
-    <h1>Chromium DWM/MPO rendering bug — minimal reproduction</h1>
-    <p>This page reproduces the rendering glitch affecting Chromium-based apps on
-       <strong>Windows 11 24H2 / 25H2 with discrete GPUs</strong>. Tracked at
-       <a href="https://issues.chromium.org/issues/429859152" style="color:var(--accent)">Chromium 429859152</a>
-       and <a href="https://github.com/electron/electron/issues/46206" style="color:var(--accent)">electron/electron#46206</a>.</p>
+      <h3>How to reproduce</h3>
+      <ol>
+        <li>Watch the <code>FRAME</code> counter and the colored <strong>canary stripe</strong> on the right edge.</li>
+        <li>Press <kbd>Alt</kbd>+<kbd>Tab</kbd> to a fullscreen game/video, or click <strong>Fullscreen</strong> then <kbd>Esc</kbd>.</li>
+        <li>Switch back. Repeat 2–3 times if needed.</li>
+      </ol>
+      <p><span class="symptom">Bug present:</span> the stripe stops scrolling, or the counter freezes,
+        while the rest of the page (cursor, buttons) still works. <code>long pauses</code> increments.
+        Click the page → it resumes. The bug is in the OS compositor (DWM); the renderer is fine.</p>
+      <p><span class="ok">No bug:</span> the stripe never stops, counter increments continuously,
+        and <code>long pauses</code> stays at 0 (or only ticks when visibility actually changed).</p>
 
-    <p><strong>Trigger steps:</strong></p>
-    <ol>
-      <li>Watch the <span class="key">animation frame</span> counter in the top-left — it should increment ~60 times/sec smoothly.</li>
-      <li>Press <kbd>Alt</kbd>+<kbd>Tab</kbd> to switch to a fullscreen application
-          (game, video player, or a maximized window). <em>Or</em> click <span class="key">Fullscreen</span>, then <kbd>Esc</kbd>.</li>
-      <li>Switch back to this tab.</li>
-      <li><strong>Repeat 2–3 times if needed</strong> — the bug doesn't always fire on the first switch.</li>
-    </ol>
-    <p><span class="symptom">Bug present:</span> the counter freezes at an old number while
-       the rest of the UI responds, or shows torn/partial frames.
-       Click the page → counter resumes. The bug is in the OS compositor (DWM), not the page.</p>
-    <p><span style="color:var(--accent);font-weight:bold">No bug:</span> counter keeps incrementing throughout, or resumes immediately when window regains focus.</p>
-    <pre id="diag"></pre>
+      <h3>What the metrics show</h3>
+      <p><code>FRAME</code> / <code>rAF fps</code> — animation frames the page rendered.
+         If these stop incrementing while you can still see and interact with the page,
+         the compositor is frozen.</p>
+      <p><code>video fps</code> / <code>video frames</code> — frames the browser actually
+         <em>presented</em> to the screen, via the
+         <a href="https://developer.mozilla.org/en-US/docs/Web/API/HTMLVideoElement/requestVideoFrameCallback" target="_blank">requestVideoFrameCallback</a>
+         API. This number lagging behind <code>elapsed × 24</code> is direct evidence the
+         compositor dropped your frames.</p>
+      <p><code>video dropped</code> — count from
+         <code>getVideoPlaybackQuality().droppedVideoFrames</code>, the browser's own
+         dropped-frame counter.</p>
+      <p><code>long pauses</code> — number of times <code>requestAnimationFrame</code> went
+         silent for over 200ms <em>while the page was visible and focused</em>.</p>
+
+      <h3>Diagnostic dump</h3>
+      <pre id="diag"></pre>
+
+      <h3>Browser internals (copy + paste into address bar)</h3>
+      <p style="font-size:12px;color:var(--dim);margin-bottom:6px">
+        Chrome blocks navigation to <code>chrome://</code> URLs from a regular page.
+        Click any item below to copy it, then paste into the address bar.
+      </p>
+      <div id="chromeUrls"></div>
+
+      <h3>Workarounds</h3>
+      <p><strong>Per-app:</strong> <code>chrome://flags/#use-angle</code> → set to <strong>D3D9</strong> or <strong>OpenGL</strong>.
+         (Note: loses HEVC hardware decode in some configurations.)</p>
+      <p><strong>Win 11 24H2 system-wide:</strong> <code>HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers OverlayMinFPS=0</code>, restart.</p>
+      <p><strong>Win 11 25H2 system-wide:</strong> <code>HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers DisableOverlays=1</code>, restart.</p>
+
+      <p style="margin-top:14px"><a href="https://github.com/spaceagetv/chromium-gpu-bug" target="_blank">Source on GitHub</a></p>
+    </div>
   </div>
 
   <script>
-    // Frame counter — running at requestAnimationFrame rate (typically 60Hz)
-    const frameEl = document.getElementById('frame')
-    const elapsedEl = document.getElementById('elapsed')
-    const start = performance.now()
-    let frame = 0
-    function tick() {
-      frame++
-      frameEl.textContent = frame.toLocaleString()
-      elapsedEl.textContent = ((performance.now() - start) / 1000).toFixed(3) + 's'
+  (() => {
+    'use strict'
+
+    const $ = (id) => document.getElementById(id)
+    const startMs = performance.now()
+
+    // ---- requestAnimationFrame counter + FPS -------------------------------
+    let rafCount = 0
+    let rafLastFpsAt = startMs
+    let rafLastFpsCount = 0
+    let lastFrameMs = startMs
+
+    // ---- Long-pause detection ---------------------------------------------
+    // A long pause is a >200ms gap between rAF callbacks while the page is
+    // continuously visible AND focused. This filters out alt-tab-away pauses
+    // (browser throttles rAF when hidden) but catches the bug's freezes,
+    // which can occur when alt-tabbing back or during focus changes.
+    let longPauses = 0
+    let wasVisible = !document.hidden
+    let wasFocused = document.hasFocus()
+
+    function tick(now) {
+      rafCount++
+      const dt = now - lastFrameMs
+      const visibleNow = !document.hidden
+      const focusedNow = document.hasFocus()
+      // Only count "long pause" if we were visible+focused on BOTH sides of the gap
+      if (dt > 200 && wasVisible && visibleNow && wasFocused && focusedNow) {
+        longPauses++
+        $('longPauses').textContent = longPauses
+        $('hud').classList.add('warn')
+        setTimeout(() => $('hud').classList.remove('warn'), 1500)
+        log('long pause: ' + dt.toFixed(0) + 'ms', 'warn')
+      }
+      wasVisible = visibleNow
+      wasFocused = focusedNow
+      lastFrameMs = now
+
+      $('rafFrame').textContent = rafCount.toLocaleString()
+      $('elapsed').textContent = ((now - startMs) / 1000).toFixed(1) + 's'
+
+      // FPS computed every 500ms over a sliding window
+      if (now - rafLastFpsAt >= 500) {
+        const fps = ((rafCount - rafLastFpsCount) * 1000) / (now - rafLastFpsAt)
+        $('rafFps').textContent = fps.toFixed(1)
+        rafLastFpsAt = now
+        rafLastFpsCount = rafCount
+      }
+
       requestAnimationFrame(tick)
     }
     requestAnimationFrame(tick)
 
-    // Diagnostics
-    const diag = document.getElementById('diag')
-    const lines = [
-      'userAgent: ' + navigator.userAgent,
-      'viewport:  ' + window.innerWidth + 'x' + window.innerHeight + ' @ ' + window.devicePixelRatio + 'x',
-      'platform:  ' + (navigator.userAgentData?.platform || navigator.platform),
-      'cores:     ' + (navigator.hardwareConcurrency || 'unknown'),
-      'memory:    ' + (navigator.deviceMemory ? navigator.deviceMemory + ' GB' : 'unknown'),
-    ]
-    diag.textContent = lines.join('\n')
+    // ---- requestVideoFrameCallback: per-presented-frame stats --------------
+    // This is the most direct page-side evidence of compositor health. The
+    // callback fires when the browser believes the frame was presented to the
+    // screen, with timing metadata. If DWM stalls our swap chain, callback rate
+    // drops and the dropped-frame counter on the video element ticks.
+    const video = $('bg')
+    let vfcCount = 0
+    let vfcLastFpsAt = 0
+    let vfcLastFpsCount = 0
 
-    // Best-effort GPU info via WebGL (no chrome:// access from a regular page)
+    function vfcTick(now, meta) {
+      vfcCount++
+      $('vfcCount').textContent = vfcCount.toLocaleString()
+      if (vfcLastFpsAt === 0) vfcLastFpsAt = now
+      if (now - vfcLastFpsAt >= 500) {
+        const fps = ((vfcCount - vfcLastFpsCount) * 1000) / (now - vfcLastFpsAt)
+        $('vfcFps').textContent = fps.toFixed(1)
+        vfcLastFpsAt = now
+        vfcLastFpsCount = vfcCount
+      }
+      // Browser-reported dropped frames (cumulative for the lifetime of <video>)
+      try {
+        const q = video.getVideoPlaybackQuality?.()
+        if (q) $('vfcDropped').textContent = q.droppedVideoFrames.toLocaleString()
+      } catch (e) {}
+      video.requestVideoFrameCallback(vfcTick)
+    }
+    if (video.requestVideoFrameCallback) {
+      video.requestVideoFrameCallback(vfcTick)
+    } else {
+      $('vfcFps').textContent = 'n/a'
+    }
+
+    // ---- Visibility / focus state badges ----------------------------------
+    function updateState() {
+      const vb = $('visBadge')
+      const fb = $('focusBadge')
+      if (document.hidden) { vb.textContent = 'HIDDEN'; vb.className = 'badge bad' }
+      else { vb.textContent = 'VISIBLE'; vb.className = 'badge ok' }
+      if (document.hasFocus()) { fb.textContent = 'FOCUS'; fb.className = 'badge ok' }
+      else { fb.textContent = 'BLUR'; fb.className = 'badge warn' }
+    }
+    updateState()
+    document.addEventListener('visibilitychange', () => {
+      log('visibility → ' + document.visibilityState, document.hidden ? 'warn' : 'ok')
+      updateState()
+    })
+    window.addEventListener('focus', () => { log('focus regained', 'ok'); updateState() })
+    window.addEventListener('blur', () => { log('focus lost', 'warn'); updateState() })
+
+    // ---- Event log (last ~10 entries) -------------------------------------
+    const logBox = $('log')
+    const logBuf = []
+    function log(msg, level) {
+      logBuf.push({ t: ((performance.now() - startMs) / 1000).toFixed(1) + 's', msg, level })
+      if (logBuf.length > 12) logBuf.shift()
+      logBox.innerHTML = logBuf.map(e =>
+        `<div class="e ${e.level || ''}">${e.t.padStart(7)} · ${e.msg}</div>`
+      ).join('')
+      logBox.scrollTop = logBox.scrollHeight
+    }
+    log('repro page started', 'ok')
+
+    // ---- Fullscreen + auto-cycle controls ---------------------------------
+    $('fsBtn').addEventListener('click', async () => {
+      try {
+        if (document.fullscreenElement) await document.exitFullscreen()
+        else await document.documentElement.requestFullscreen()
+      } catch (e) { log('fullscreen failed: ' + e.message, 'warn') }
+    })
+    document.addEventListener('fullscreenchange', () => {
+      $('fsBtn').textContent = document.fullscreenElement ? 'Exit FS' : 'Fullscreen'
+      log('fullscreen ' + (document.fullscreenElement ? 'entered' : 'exited'))
+    })
+
+    let autoIntv = null
+    $('autoBtn').addEventListener('click', async () => {
+      if (autoIntv) {
+        clearInterval(autoIntv); autoIntv = null
+        $('autoBtn').textContent = 'Auto-cycle'
+        log('auto-cycle stopped')
+        return
+      }
+      $('autoBtn').textContent = 'Stop'
+      log('auto-cycle started (10s interval)')
+      autoIntv = setInterval(async () => {
+        try {
+          if (document.fullscreenElement) await document.exitFullscreen()
+          else await document.documentElement.requestFullscreen()
+        } catch (e) { log('cycle failed: ' + e.message, 'warn') }
+      }, 10000)
+    })
+
+    // ---- Info modal --------------------------------------------------------
+    $('infoBtn').addEventListener('click', () => $('modal').classList.add('open'))
+    $('modal').addEventListener('click', (e) => {
+      if (e.target.id === 'modal') $('modal').classList.remove('open')
+    })
+
+    // Diagnostic dump (rendered into the modal, not the HUD, to keep HUD compact)
+    const diag = []
+    // Parse Chrome / Chromium version from UA
+    const ua = navigator.userAgent
+    const chromeVer = ua.match(/Chrome\/([\d.]+)/)?.[1]
+    const edgeVer = ua.match(/Edg\/([\d.]+)/)?.[1]
+    const browser = edgeVer ? `Edge ${edgeVer} (Chromium ${chromeVer})` :
+                    chromeVer ? `Chrome / Chromium ${chromeVer}` :
+                    'Non-Chromium browser — this repro requires a Chromium-based browser'
+    diag.push('browser:   ' + browser)
+    diag.push('userAgent: ' + ua)
+    diag.push('viewport:  ' + window.innerWidth + 'x' + window.innerHeight + ' @ ' + window.devicePixelRatio + 'x dpr')
+    diag.push('platform:  ' + (navigator.userAgentData?.platform || navigator.platform))
+    diag.push('cores:     ' + (navigator.hardwareConcurrency || 'unknown'))
+    diag.push('memory:    ' + (navigator.deviceMemory ? navigator.deviceMemory + ' GB' : 'unknown'))
     try {
       const gl = document.createElement('canvas').getContext('webgl')
       const ext = gl?.getExtension('WEBGL_debug_renderer_info')
       if (ext) {
-        diag.textContent += '\nGPU vendor:   ' + gl.getParameter(ext.UNMASKED_VENDOR_WEBGL)
-        diag.textContent += '\nGPU renderer: ' + gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)
+        diag.push('GPU vendor:   ' + gl.getParameter(ext.UNMASKED_VENDOR_WEBGL))
+        diag.push('GPU renderer: ' + gl.getParameter(ext.UNMASKED_RENDERER_WEBGL))
       }
     } catch (e) {}
+    $('diag').textContent = diag.join('\n')
 
-    // Fullscreen toggle — useful trigger because entering/exiting fullscreen
-    // forces DWM to re-evaluate MPO promotion
-    const fsBtn = document.getElementById('fsToggle')
-    const status = document.getElementById('status')
-    fsBtn.addEventListener('click', async () => {
-      if (document.fullscreenElement) {
-        await document.exitFullscreen()
-      } else {
-        await document.documentElement.requestFullscreen()
-      }
-    })
-    document.addEventListener('fullscreenchange', () => {
-      fsBtn.textContent = document.fullscreenElement ? 'Exit fullscreen' : 'Fullscreen'
-    })
-
-    // Auto-trigger — repeatedly toggle fullscreen + visibility events to force
-    // DWM mode transitions. Helpful when manual alt-tab isn't reliably firing.
-    let autoIntv = null
-    const autoBtn = document.getElementById('autoTrigger')
-    autoBtn.addEventListener('click', async () => {
-      if (autoIntv) {
-        clearInterval(autoIntv)
-        autoIntv = null
-        autoBtn.textContent = 'Auto-trigger (10s)'
-        status.textContent = 'idle'
-        return
-      }
-      autoBtn.textContent = 'Stop auto-trigger'
-      let n = 0
-      autoIntv = setInterval(async () => {
-        n++
-        status.textContent = 'cycle ' + n + ' — toggling fullscreen'
+    // Browser internals: click-to-copy chrome:// URLs (Chrome blocks navigation from a page)
+    const chromeUrls = [
+      ['chrome://gpu',             'GPU info, ANGLE backend, hardware overlay support, MPO status'],
+      ['chrome://version',         'Chrome + Chromium version, OS build, command-line flags'],
+      ['chrome://flags/#use-angle', 'ANGLE backend selector — workaround toggle'],
+      ['chrome://media-internals', 'Per-player video decoder info (HEVC / D3D11VideoDecoder)'],
+      ['chrome://histograms/GPU.DirectComposition', 'DirectComposition / overlay-mode histograms'],
+    ]
+    $('chromeUrls').innerHTML = chromeUrls.map(([url, desc]) =>
+      `<div class="chromeLink" data-url="${url}">
+         <span class="url">${url}</span>
+         <span class="desc">${desc}</span>
+         <span class="copyHint">click to copy</span>
+       </div>`
+    ).join('')
+    document.querySelectorAll('.chromeLink').forEach(el => {
+      el.addEventListener('click', async () => {
+        const url = el.dataset.url
         try {
-          if (document.fullscreenElement) await document.exitFullscreen()
-          else await document.documentElement.requestFullscreen()
+          await navigator.clipboard.writeText(url)
+          el.classList.add('copied')
+          el.querySelector('.copyHint').textContent = 'copied!'
+          setTimeout(() => {
+            el.classList.remove('copied')
+            el.querySelector('.copyHint').textContent = 'click to copy'
+          }, 1500)
         } catch (e) {
-          status.textContent = 'fullscreen blocked: ' + e.message
+          el.querySelector('.copyHint').textContent = 'copy failed'
         }
-      }, 10000)
+      })
     })
+  })()
   </script>
 </body>
 </html>
