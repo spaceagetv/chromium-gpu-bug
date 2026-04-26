@@ -318,15 +318,17 @@
   </style>
 </head>
 <body>
-  <!-- Video is `muted` so autoplay works; `controls` lets testers unmute to surface
-       audio-pipeline symptoms (cutouts during compositor freezes) alongside video glitches. -->
-  <video id="bg" src="test-video.mp4" autoplay loop muted playsinline controls preload="auto"></video>
+  <!-- Video is `muted` so autoplay works. Native `controls` are intentionally
+       OMITTED so a click anywhere on the page (including on the video) serves
+       cleanly as the AudioContext-resume user gesture without also toggling
+       play/pause. The HUD's "Mute" / "Unmute" button drives the mute state. -->
+  <video id="bg" src="test-video.mp4" autoplay loop muted playsinline preload="auto" disablepictureinpicture></video>
   <div id="canary" title="Animated canary — if this stops scrolling, the compositor is frozen"></div>
 
   <div id="bigClock" title="Screenshot this if you see a flicker or freeze — the elapsed time helps pin down the bug">
     <span class="lbl">elapsed</span>
     <span id="bigClockVal">0.0s</span>
-    <span class="hint">If you see a full-frame flicker, screenshot this number.<br>Unmute the video (controls below) to also test audio cutouts.</span>
+    <span class="hint">If you see a full-frame flicker, screenshot this number.<br>Click <strong>Unmute</strong> in the HUD to also test audio cutouts.</span>
   </div>
 
   <div id="hud">
@@ -357,6 +359,7 @@
     <div id="log"></div>
     <div id="buttons">
       <button id="fsBtn">Fullscreen</button>
+      <button id="muteBtn" title="Toggle the video's audio. Web Audio capture mode auto-unmutes.">Unmute</button>
       <button id="waBtn" title="Tap the video through a Visibox-shaped Web Audio graph (#4051 repro path)">Web Audio: OFF</button>
       <button id="infoBtn" title="Instructions and diagnostics">Read me  ⓘ</button>
     </div>
@@ -1036,6 +1039,20 @@
     }
 
     $('waBtn').addEventListener('click', startWebAudioCapture)
+
+    // ---- Mute toggle (replaces native <video controls>) --------------------
+    function reflectMute() {
+      const btn = $('muteBtn')
+      if (!btn) return
+      btn.textContent = video.muted ? 'Unmute' : 'Mute'
+    }
+    $('muteBtn').addEventListener('click', () => {
+      video.muted = !video.muted
+      reflectMute()
+      log('video ' + (video.muted ? 'muted' : 'unmuted'))
+    })
+    video.addEventListener('volumechange', reflectMute)
+    reflectMute()
 
     // URL param: ?webaudio=1 auto-enables (used by the Electron Fiddle gist).
     const params = new URLSearchParams(location.search)
