@@ -32,6 +32,55 @@
       object-fit: cover;
       z-index: 0;
     }
+    /* Native video controls overlay (only visible on hover near the bottom) */
+    video#bg::-webkit-media-controls-panel { background: rgba(0,0,0,0.5); }
+
+    /* Large screenshot-friendly elapsed counter, top-center.
+       If a glitch fires, this timestamp goes into the bug report. */
+    #bigClock {
+      position: fixed;
+      top: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 8;
+      background: rgba(0, 0, 0, 0.72);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 18px;
+      font-family: "SF Mono", "Cascadia Code", Consolas, monospace;
+      font-variant-numeric: tabular-nums;
+      font-size: 28px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      color: var(--accent);
+      text-align: center;
+      line-height: 1.1;
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+    }
+    #bigClock .lbl {
+      display: block;
+      font-size: 10px;
+      letter-spacing: 0.12em;
+      color: var(--dim);
+      text-transform: uppercase;
+      font-weight: 500;
+      margin-bottom: 2px;
+    }
+    #bigClock .hint {
+      display: block;
+      font-size: 11px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      font-weight: 400;
+      color: var(--dim);
+      margin-top: 4px;
+      letter-spacing: 0;
+    }
+    #bigClock.warn {
+      color: var(--warn);
+      border-color: rgba(248, 113, 113, 0.4);
+      box-shadow: 0 0 0 2px rgba(248, 113, 113, 0.25);
+    }
 
     /* Compact HUD: single panel, top-left */
     #hud {
@@ -263,8 +312,16 @@
   </style>
 </head>
 <body>
-  <video id="bg" src="test-video.mp4" autoplay loop muted playsinline></video>
+  <!-- Video is `muted` so autoplay works; `controls` lets testers unmute to surface
+       audio-pipeline symptoms (cutouts during compositor freezes) alongside video glitches. -->
+  <video id="bg" src="test-video.mp4" autoplay loop muted playsinline controls preload="auto"></video>
   <div id="canary" title="Animated canary — if this stops scrolling, the compositor is frozen"></div>
+
+  <div id="bigClock" title="Screenshot this if you see a flicker or freeze — the elapsed time helps pin down the bug">
+    <span class="lbl">elapsed</span>
+    <span id="bigClockVal">0.0s</span>
+    <span class="hint">If you see a full-frame flicker, screenshot this number.<br>Unmute the video (controls below) to also test audio cutouts.</span>
+  </div>
 
   <div id="hud">
     <div id="verdict" class="verdict unknown" title="Click for the affected-hardware checklist">
@@ -306,6 +363,13 @@
         Tracked at <a href="https://issues.chromium.org/issues/429859152" target="_blank">Chromium 429859152</a>
         and <a href="https://github.com/electron/electron/issues/46206" target="_blank">electron/electron#46206</a>.
       </p>
+      <p style="font-size:12.5px;color:var(--dim)">
+        The clip is 50 seconds of looping H.264+AAC video. <strong>If you see a
+        full-frame flicker, screenshot the page</strong> — the big timer up top is
+        screenshot-friendly and pins down exactly when the glitch fired. Use the
+        native video <strong>controls</strong> to unmute; audio cutouts during a
+        compositor freeze are a related symptom worth reporting.
+      </p>
 
       <h3>Are you on affected hardware?</h3>
       <div id="checklist"></div>
@@ -342,7 +406,7 @@
         <li><code>long pauses</code> should stay at <strong>0</strong>. Each increment is
             a confirmed compositor freeze of &gt;200ms while the page was visible and
             focused — direct evidence of the bug.</li>
-        <li><code>video fps</code> should hover around the video's native rate (~24fps
+        <li><code>video fps</code> should hover around the video's native rate (~30fps
             for this clip). Sustained drops indicate dropped frames at the compositor.</li>
       </ul>
       <p><span class="symptom">Bug present:</span> the stripe freezes mid-scroll, or
@@ -370,7 +434,7 @@
       <p><code>video fps</code> / <code>video frames</code> — frames the browser actually
          <em>presented</em> to the screen, via the
          <a href="https://developer.mozilla.org/en-US/docs/Web/API/HTMLVideoElement/requestVideoFrameCallback" target="_blank">requestVideoFrameCallback</a>
-         API. This number lagging behind <code>elapsed × 24</code> is direct evidence the
+         API. This number lagging behind <code>elapsed × 30</code> is direct evidence the
          compositor dropped your frames.</p>
       <p><code>video dropped</code> — count from
          <code>getVideoPlaybackQuality().droppedVideoFrames</code>, the browser's own
@@ -430,7 +494,9 @@
         longPauses++
         $('longPauses').textContent = longPauses
         $('hud').classList.add('warn')
+        $('bigClock').classList.add('warn')
         setTimeout(() => $('hud').classList.remove('warn'), 1500)
+        setTimeout(() => $('bigClock').classList.remove('warn'), 2500)
         log('long pause: ' + dt.toFixed(0) + 'ms', 'warn')
       }
       wasVisible = visibleNow
@@ -438,7 +504,9 @@
       lastFrameMs = now
 
       $('rafFrame').textContent = rafCount.toLocaleString()
-      $('elapsed').textContent = ((now - startMs) / 1000).toFixed(1) + 's'
+      const elapsedStr = ((now - startMs) / 1000).toFixed(1) + 's'
+      $('elapsed').textContent = elapsedStr
+      $('bigClockVal').textContent = elapsedStr
 
       // FPS computed every 500ms over a sliding window
       if (now - rafLastFpsAt >= 500) {
