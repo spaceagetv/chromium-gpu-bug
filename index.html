@@ -184,9 +184,10 @@
     #log .e.warn { color: var(--warn); }
     #log .e.ok { color: var(--accent); }
 
-    #buttons { display: flex; gap: 6px; margin-top: 8px; }
+    #buttons { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
     #buttons button {
-      flex: 1;
+      flex: 1 1 70px;
+      min-width: 70px;
       background: rgba(255, 255, 255, 0.08);
       color: var(--fg);
       border: 1px solid var(--border);
@@ -352,14 +353,16 @@
       <span class="val">
         <span id="visBadge" class="badge ok">VISIBLE</span>
         <span id="focusBadge" class="badge ok">FOCUS</span>
+        <span id="playBadge" class="badge bad">PAUSED</span>
         <span id="waBadge" class="badge bad">AUDIO BYPASS</span>
       </span>
     </div>
     <div class="sep"></div>
     <div id="log"></div>
     <div id="buttons">
+      <button id="playBtn" title="Toggle video playback">Play</button>
+      <button id="muteBtn" title="Toggle the video's audio. Web Audio capture mode auto-unmutes on first click.">Unmute</button>
       <button id="fsBtn">Fullscreen</button>
-      <button id="muteBtn" title="Toggle the video's audio. Web Audio capture mode auto-unmutes.">Unmute</button>
       <button id="waBtn" title="Tap the video through a Visibox-shaped Web Audio graph (#4051 repro path)">Web Audio: OFF</button>
       <button id="infoBtn" title="Instructions and diagnostics">Read me  ⓘ</button>
     </div>
@@ -923,6 +926,7 @@
       // Per-input pipeline
       const videos = document.querySelectorAll('video')
       const inputAnalysers = []
+      const tappedVideos = []
       let tapped = 0
       videos.forEach((v, i) => {
         try {
@@ -945,13 +949,7 @@
           inputGain.connect(preMaster)
           inputGain.connect(inputAnalyser)
           inputAnalysers.push(inputAnalyser)
-
-          // Critical: unmute the source. Chromium typically skips audio decode
-          // for muted media, so the Web Audio tap would receive silence and we
-          // wouldn't actually exercise the audio pipeline. With Web Audio
-          // routing the audio through the graph, the element's own mute state
-          // is no longer needed.
-          v.muted = false
+          tappedVideos.push(v)
 
           tapped++
           console.log('[#4051] tapped video #' + i, v.currentSrc || v.src)
@@ -959,6 +957,27 @@
           console.error('[#4051] failed on video #' + i, e)
         }
       })
+
+      // Activation = unmute + ensure playing. Deferred until the AudioContext
+      // is actually running, because:
+      //   - Chromium skips audio decode for muted media (silence into the tap)
+      //     so we DO need to unmute eventually
+      //   - But unmuting an autoplaying-muted-video pauses it (autoplay policy
+      //     requires a gesture for unmuted playback)
+      //   - And the AudioContext can only resume on a user gesture
+      // So we wait for the gesture-driven resume, then unmute + play() in the
+      // same gesture cycle.
+      let activated = false
+      function activate() {
+        if (activated) return
+        activated = true
+        for (const v of tappedVideos) {
+          v.muted = false
+          if (v.paused) v.play().catch(e =>
+            log('post-resume play failed: ' + e.message, 'warn'))
+        }
+        log('Web Audio active · unmuted + playing', 'ok')
+      }
 
       const inputBuf = new Float32Array(2048)
       setInterval(() => {
@@ -1023,10 +1042,12 @@
         }
       }
       reflectState()
+      if (ctx.state === 'running') activate()
       ctx.addEventListener('statechange', () => {
         reflectState()
         log('AudioContext state → ' + ctx.state,
             ctx.state === 'running' ? 'ok' : 'warn')
+        if (ctx.state === 'running') activate()
       })
 
       log(
@@ -1047,12 +1068,41 @@
       btn.textContent = video.muted ? 'Unmute' : 'Mute'
     }
     $('muteBtn').addEventListener('click', () => {
+      const wasPaused = video.paused
       video.muted = !video.muted
       reflectMute()
+      // Unmuting can pause an autoplaying muted video (browser autoplay policy
+      // requires a gesture for unmuted playback). The click on this button IS
+      // a gesture, so try to keep the video playing.
+      if (!wasPaused && video.paused) {
+        video.play().catch(e => log('resume failed: ' + e.message, 'warn'))
+      }
       log('video ' + (video.muted ? 'muted' : 'unmuted'))
     })
     video.addEventListener('volumechange', reflectMute)
     reflectMute()
+
+    // ---- Play / Pause toggle ----------------------------------------------
+    function reflectPlay() {
+      const btn = $('playBtn')
+      const badge = $('playBadge')
+      if (btn) btn.textContent = video.paused ? 'Play' : 'Pause'
+      if (badge) {
+        badge.textContent = video.paused ? 'PAUSED' : 'PLAYING'
+        badge.className = video.paused ? 'badge bad' : 'badge ok'
+      }
+    }
+    $('playBtn').addEventListener('click', () => {
+      if (video.paused) {
+        video.play().catch(e => log('play failed: ' + e.message, 'warn'))
+      } else {
+        video.pause()
+      }
+    })
+    video.addEventListener('play', reflectPlay)
+    video.addEventListener('playing', reflectPlay)
+    video.addEventListener('pause', reflectPlay)
+    reflectPlay()
 
     // URL param: ?webaudio=1 auto-enables (used by the Electron Fiddle gist).
     const params = new URLSearchParams(location.search)
