@@ -5,6 +5,10 @@ Chromium-based applications on **Windows 11 24H2 and 25H2 with discrete GPUs**.
 
 **Live demo:** https://spaceagetv.github.io/chromium-gpu-bug/
 
+An accompanying [Electron Fiddle](electron-fiddle/) lives in this repo for
+testing the same repro inside an Electron `BrowserWindow` with toggleable
+Chromium / ANGLE flags.
+
 ## What is this bug?
 
 Chromium's default video and compositor present path on Windows uses
@@ -105,6 +109,7 @@ or a GPU driver release, please open an issue or PR linking to it.
 
 - `index.html` — the reproduction page
 - `test-video.mp4` — sample H.264 video used to trip MPO promotion (Big Buck Bunny clip, public domain, ~770KB)
+- `electron-fiddle/` — companion Electron Fiddle that loads the same repro page in a `BrowserWindow` with toggleable Chromium / ANGLE flags
 - `README.md` — this file
 - `LICENSE` — MIT
 
