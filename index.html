@@ -942,6 +942,14 @@
           inputGain.connect(preMaster)
           inputGain.connect(inputAnalyser)
           inputAnalysers.push(inputAnalyser)
+
+          // Critical: unmute the source. Chromium typically skips audio decode
+          // for muted media, so the Web Audio tap would receive silence and we
+          // wouldn't actually exercise the audio pipeline. With Web Audio
+          // routing the audio through the graph, the element's own mute state
+          // is no longer needed.
+          v.muted = false
+
           tapped++
           console.log('[#4051] tapped video #' + i, v.currentSrc || v.src)
         } catch (e) {
@@ -954,8 +962,26 @@
         for (const a of inputAnalysers) a.getFloatTimeDomainData(inputBuf)
       }, 66)
 
-      // Best-effort resume (browsers gate AudioContext start on a user gesture)
-      if (ctx.state === 'suspended') ctx.resume().catch(() => {})
+      // Browsers gate AudioContext start on a user gesture. resume() called
+      // without one is silently rejected. Try now (in case the user already
+      // clicked the Web Audio button), and if still suspended attach a
+      // one-shot listener that resumes on the next pointerdown / keydown
+      // anywhere on the page.
+      function tryResume() {
+        if (ctx.state === 'suspended') ctx.resume().catch(() => {})
+      }
+      tryResume()
+      function gestureResume() {
+        tryResume()
+        if (ctx.state === 'running') {
+          document.removeEventListener('pointerdown', gestureResume, true)
+          document.removeEventListener('keydown', gestureResume, true)
+        }
+      }
+      if (ctx.state === 'suspended') {
+        document.addEventListener('pointerdown', gestureResume, true)
+        document.addEventListener('keydown', gestureResume, true)
+      }
 
       window.__webAudioContext = ctx
       console.log(
@@ -966,21 +992,46 @@
         '/' + ctx.destination.maxChannelCount
       )
 
-      // Update HUD
+      // Reactive HUD: reflect AudioContext state on every transition.
       const btn = $('waBtn')
-      if (btn) {
-        btn.classList.add('on')
-        btn.textContent = 'Web Audio: ON (' + tapped + ')'
-        btn.disabled = true
-        btn.title = 'Web Audio capture is one-way. Reload the page to disable.'
-      }
       const wb = $('waBadge')
-      if (wb) {
-        wb.textContent = 'AUDIO TAPPED'
-        wb.className = 'badge ok'
+      function reflectState() {
+        const s = ctx.state
+        if (btn) {
+          btn.classList.add('on')
+          btn.disabled = true
+          btn.textContent =
+            s === 'running'
+              ? 'Web Audio: ON (' + tapped + ')'
+              : 'Web Audio: ' + s.toUpperCase() + ' — click to start'
+          btn.title =
+            s === 'running'
+              ? 'Web Audio capture is active. Reload the page to disable.'
+              : 'AudioContext is ' + s + '. Click anywhere on the page to start audio.'
+        }
+        if (wb) {
+          if (s === 'running') {
+            wb.textContent = 'AUDIO TAPPED'
+            wb.className = 'badge ok'
+          } else {
+            wb.textContent = 'AUDIO ' + s.toUpperCase()
+            wb.className = 'badge bad'
+          }
+        }
       }
-      log('Web Audio capture ON · ' + tapped + ' video(s) tapped · ' +
-          ctx.sampleRate + 'Hz', 'ok')
+      reflectState()
+      ctx.addEventListener('statechange', () => {
+        reflectState()
+        log('AudioContext state → ' + ctx.state,
+            ctx.state === 'running' ? 'ok' : 'warn')
+      })
+
+      log(
+        'Web Audio capture ON · ' + tapped + ' video(s) tapped · ' +
+        ctx.sampleRate + 'Hz · ctx ' + ctx.state +
+        (ctx.state === 'suspended' ? ' (click anywhere to start)' : ''),
+        'ok'
+      )
       return ctx
     }
 
