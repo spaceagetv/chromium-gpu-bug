@@ -198,6 +198,12 @@
     }
     #buttons button:hover { background: rgba(255, 255, 255, 0.16); }
     #buttons button.iconOnly { flex: 0 0 auto; padding: 5px 9px; }
+    #buttons button#waBtn.on {
+      background: rgba(74, 222, 128, 0.15);
+      border-color: rgba(74, 222, 128, 0.5);
+      color: var(--accent);
+    }
+    #buttons button#waBtn.on:hover { background: rgba(74, 222, 128, 0.28); }
     #buttons button#infoBtn {
       background: rgba(74, 222, 128, 0.15);
       border-color: rgba(74, 222, 128, 0.5);
@@ -344,12 +350,14 @@
       <span class="val">
         <span id="visBadge" class="badge ok">VISIBLE</span>
         <span id="focusBadge" class="badge ok">FOCUS</span>
+        <span id="waBadge" class="badge bad">AUDIO BYPASS</span>
       </span>
     </div>
     <div class="sep"></div>
     <div id="log"></div>
     <div id="buttons">
       <button id="fsBtn">Fullscreen</button>
+      <button id="waBtn" title="Tap the video through a Visibox-shaped Web Audio graph (#4051 repro path)">Web Audio: OFF</button>
       <button id="infoBtn" title="Instructions and diagnostics">Read me  ⓘ</button>
     </div>
   </div>
@@ -451,6 +459,22 @@
         Click any item below to copy it, then paste into the address bar.
       </p>
       <div id="chromeUrls"></div>
+
+      <h3>Web Audio capture mode (issue #4051)</h3>
+      <p>Click <strong>Web Audio: OFF</strong> in the HUD (or load this page with
+        <code>?webaudio=1</code>) to wrap the <code>&lt;video&gt;</code> in a
+        Visibox-shaped Web Audio graph: <code>createMediaElementSource</code> →
+        per-input <code>GainNode</code> + parallel <code>AnalyserNode</code> tap →
+        a shared pre-master <code>GainNode</code> bus → master gain → destination.
+        A silent <code>AudioBufferSourceNode</code> permanently feeds the
+        pre-master bus (matches Visibox's keepalive); meter analysers are polled
+        at 200ms (master) and 66ms (per-input). Mirrors
+        <a href="https://github.com/spaceagetv/missioncontrol/blob/next/src/renderers/output/AudioMixer.ts" target="_blank"><code>src/renderers/output/AudioMixer.ts</code></a>.
+      </p>
+      <p>Use <code>chrome://media-internals</code> to watch
+        <code>video_buffering_state</code> for repeated
+        <code>BUFFERING_HAVE_NOTHING / DECODER_UNDERFLOW</code> entries while
+        capture is on. Toggle is one-way; reload the page to disable.</p>
 
       <h3>Workarounds</h3>
       <p><strong>Per-app:</strong> <code>chrome://flags/#use-angle</code> → set to <strong>D3D9</strong> or <strong>OpenGL</strong>.
@@ -846,6 +870,129 @@
         }
       })
     })
+
+    // ---- Web Audio capture mode (issue #4051) ------------------------------
+    // Builds a Visibox-shaped Web Audio graph around the page's <video>:
+    //   src -> inputGain -> preMaster -> master -> destination
+    //                    \-> per-input AnalyserNode (66ms poll)
+    //   master   -> meter AnalyserNode (200ms poll)
+    //   silentBuf -> preMaster (keepalive)
+    // AudioContext: latencyHint='interactive', discrete multichannel destination.
+    // One-way toggle: createMediaElementSource can only be called once per <video>.
+    function startWebAudioCapture() {
+      if (window.__webAudioCaptureInstalled) return window.__webAudioContext
+      window.__webAudioCaptureInstalled = true
+
+      const ctx = new AudioContext({ latencyHint: 'interactive' })
+      try {
+        ctx.destination.channelCount = ctx.destination.maxChannelCount
+        ctx.destination.channelCountMode = 'max'
+        ctx.destination.channelInterpretation = 'discrete'
+      } catch (e) { console.warn('[#4051] destination config failed', e) }
+
+      const preMaster = ctx.createGain()
+      preMaster.channelCountMode = 'max'
+      preMaster.channelInterpretation = 'discrete'
+
+      const master = ctx.createGain()
+      master.channelCountMode = 'max'
+      master.channelInterpretation = 'discrete'
+
+      preMaster.connect(master)
+      master.connect(ctx.destination)
+
+      // Silent keepalive on preMaster (matches AudioMixer.createSilentSource)
+      const silentBuf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate)
+      const silentSrc = ctx.createBufferSource()
+      silentSrc.buffer = silentBuf
+      silentSrc.loop = true
+      silentSrc.start()
+      silentSrc.connect(preMaster)
+
+      // Master meter (200ms)
+      const meterAnalyser = ctx.createAnalyser()
+      meterAnalyser.fftSize = 2048
+      meterAnalyser.smoothingTimeConstant = 0.8
+      master.connect(meterAnalyser)
+      const meterBuf = new Float32Array(meterAnalyser.fftSize)
+      setInterval(() => meterAnalyser.getFloatTimeDomainData(meterBuf), 200)
+
+      // Per-input pipeline
+      const videos = document.querySelectorAll('video')
+      const inputAnalysers = []
+      let tapped = 0
+      videos.forEach((v, i) => {
+        try {
+          const src = ctx.createMediaElementSource(v)
+          src.channelCountMode = 'max'
+          src.channelInterpretation = 'discrete'
+
+          const inputGain = ctx.createGain()
+          inputGain.channelCountMode = 'max'
+          inputGain.channelInterpretation = 'discrete'
+
+          const inputAnalyser = ctx.createAnalyser()
+          inputAnalyser.fftSize = 2048
+          inputAnalyser.smoothingTimeConstant = 0.8
+          inputAnalyser.channelCount = 1
+          inputAnalyser.channelCountMode = 'explicit'
+          inputAnalyser.channelInterpretation = 'speakers'
+
+          src.connect(inputGain)
+          inputGain.connect(preMaster)
+          inputGain.connect(inputAnalyser)
+          inputAnalysers.push(inputAnalyser)
+          tapped++
+          console.log('[#4051] tapped video #' + i, v.currentSrc || v.src)
+        } catch (e) {
+          console.error('[#4051] failed on video #' + i, e)
+        }
+      })
+
+      const inputBuf = new Float32Array(2048)
+      setInterval(() => {
+        for (const a of inputAnalysers) a.getFloatTimeDomainData(inputBuf)
+      }, 66)
+
+      // Best-effort resume (browsers gate AudioContext start on a user gesture)
+      if (ctx.state === 'suspended') ctx.resume().catch(() => {})
+
+      window.__webAudioContext = ctx
+      console.log(
+        '[#4051] ctx state=' + ctx.state +
+        ' sampleRate=' + ctx.sampleRate +
+        ' baseLatency=' + ctx.baseLatency +
+        ' destChannels=' + ctx.destination.channelCount +
+        '/' + ctx.destination.maxChannelCount
+      )
+
+      // Update HUD
+      const btn = $('waBtn')
+      if (btn) {
+        btn.classList.add('on')
+        btn.textContent = 'Web Audio: ON (' + tapped + ')'
+        btn.disabled = true
+        btn.title = 'Web Audio capture is one-way. Reload the page to disable.'
+      }
+      const wb = $('waBadge')
+      if (wb) {
+        wb.textContent = 'AUDIO TAPPED'
+        wb.className = 'badge ok'
+      }
+      log('Web Audio capture ON · ' + tapped + ' video(s) tapped · ' +
+          ctx.sampleRate + 'Hz', 'ok')
+      return ctx
+    }
+
+    $('waBtn').addEventListener('click', startWebAudioCapture)
+
+    // URL param: ?webaudio=1 auto-enables (used by the Electron Fiddle gist).
+    const params = new URLSearchParams(location.search)
+    if (params.get('webaudio') === '1') {
+      // Slight delay so the <video> element is fully present (it is by now,
+      // but defer keeps the call after any other pre-paint setup).
+      setTimeout(startWebAudioCapture, 0)
+    }
   })()
   </script>
 </body>
