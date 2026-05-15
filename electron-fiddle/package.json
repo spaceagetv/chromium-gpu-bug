@@ -1,0 +1,11 @@
+{
+  "name": "chromium-gpu-bug-fiddle",
+  "productName": "chromium-gpu-bug-fiddle",
+  "description": "Electron Fiddle that loads the chromium-gpu-bug repro page so engineers can compare ANGLE / GPU-preference / D3D backend behavior against Chrome on the same hardware. See spaceagetv/missioncontrol#4046.",
+  "main": "main.js",
+  "version": "1.0.0",
+  "private": true,
+  "devDependencies": {
+    "electron": "^41.0.0"
+  }
+}
